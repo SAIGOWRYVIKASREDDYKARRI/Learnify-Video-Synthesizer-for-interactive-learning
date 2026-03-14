@@ -1,0 +1,22 @@
+# Environment and secret files
+backend/.env
+*.env
+backend/venv/
+venv/
+
+# Common sensitive or temporary files
+*.log
+*.sqlite3
+__pycache__/
+backend/__pycache__/
+backend/video_storage/
+node_modules/
+frontend/node_modules/
+dist/
+backend/cookies.txt
+
+# Large video files
+*.mp4
+backend/*.mp4
+video_output.mp4
+final_video.mp4
