@@ -9,6 +9,8 @@ from googleapiclient.discovery import build
 import random
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+import concurrent.futures
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 
 # Modular imports
 from database import init_db, get_db
@@ -17,10 +19,16 @@ from ai_service import query_ollama, generate_mcqs, evaluate_explanation
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "superjwtsecret")
+jwt = JWTManager(app)
 CORS(app)
 
 # Initialize Database
 init_db(app)
+
+# Background Video Execution Setup
+video_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+video_tasks = {}
 
 # Video Storage Config
 VIDEO_STORAGE_DIR = os.path.join(os.getcwd(), "video_storage")
@@ -59,13 +67,19 @@ def login():
     user = cur.fetchone()
     cur.close()
     if user and check_password_hash(user[3], password):
+        # JWT identity must be a string; pass extra info as additional_claims
+        access_token = create_access_token(
+            identity=str(user[2]),  # email as string identity
+            additional_claims={'id': user[0], 'username': user[1], 'email': user[2]}
+        )
         session['user'] = {'id': user[0], 'username': user[1], 'email': user[2]}
-        return jsonify({'message': 'Login successful', 'username': user[1], 'email': user[2]}), 200
+        return jsonify({'message': 'Login successful', 'username': user[1], 'email': user[2], 'token': access_token}), 200
     return jsonify({'error': 'Invalid credentials'}), 401
 
 # --- Search & History (Normalized) ---
 
 @app.route('/add_search', methods=['POST'])
+@jwt_required()
 def add_search():
     data = request.get_json()
     username, email, query = data.get("username"), data.get("email"), data.get("searches")
@@ -82,6 +96,7 @@ def add_search():
     return jsonify({"message": "Search added", "historyId": history_id}), 200
 
 @app.route("/get_history", methods=["GET"])
+@jwt_required()
 def get_history():
     username, email = request.args.get("username"), request.args.get("email")
     db = get_db()
@@ -107,6 +122,7 @@ def get_history():
     return jsonify(history)
 
 @app.route("/toggle_favorite", methods=["POST"])
+@jwt_required()
 def toggle_favorite():
     data = request.get_json()
     history_id = data.get("historyId")
@@ -147,6 +163,7 @@ def search_videos():
 # --- Core Logic & Video Storage ---
 
 @app.route("/summary", methods=["POST"])
+@jwt_required()
 def summary():
     data = request.get_json()
     keyword = data.get("keyword")
@@ -191,6 +208,7 @@ def summary():
     }), 200
 
 @app.route("/save_quiz", methods=["POST"])
+@jwt_required()
 def save_quiz():
     data = request.get_json()
     history_id = data.get("historyId")
@@ -214,6 +232,7 @@ def save_quiz():
         cur.close()
 
 @app.route("/save_score", methods=["POST"])
+@jwt_required()
 def save_score():
     data = request.get_json()
     history_id = data.get("historyId")
@@ -236,6 +255,7 @@ def save_score():
         cur.close()
 
 @app.route("/video", methods=["POST"])
+@jwt_required()
 def generate_video_route():
     try:
         data = request.get_json()
@@ -243,16 +263,17 @@ def generate_video_route():
         keyword = data.get("keyword", "technology")
         history_id = data.get("historyId") 
         
-        print(f"Request for video: {keyword}, History ID: {history_id}")
+        print(f"Request for background video: {keyword}, History ID: {history_id}")
         
-        if not text: return "No text provided for video", 400
+        if not text: return jsonify({"error": "No text provided"}), 400
 
         db = get_db()
         cur = db.cursor()
 
-        # 1. Check for global cache (any user's previous video)
+        # 1. Check for global cache
         cur.execute("SELECT video_filename FROM search_history WHERE query = %s AND video_filename IS NOT NULL ORDER BY timestamp DESC LIMIT 1", (keyword,))
         cached = cur.fetchone()
+        cur.close()
         
         permanent_filename = None
         if cached and cached[0]:
@@ -260,36 +281,57 @@ def generate_video_route():
             temp_path = os.path.join(VIDEO_STORAGE_DIR, temp_filename)
             if os.path.exists(temp_path):
                 permanent_filename = temp_filename
-                print(f"Returning cached video: {permanent_filename}")
+                
+        if permanent_filename:
+            return jsonify({"status": "completed", "video_url": f"/get_video/{permanent_filename}"})
 
-        if not permanent_filename:
-            # 2. Generate Video in temp file
-            temp_video_path = create_video_from_summary(text, keyword)
-            if not temp_video_path or not os.path.exists(temp_video_path):
-                print("Error: temp_video_path is null or does not exist")
-                cur.close()
-                return "Video generation failed", 500
-            
-            # 3. Store Video Permanently
-            permanent_filename = f"{uuid.uuid4()}.mp4"
-            permanent_path = os.path.join(VIDEO_STORAGE_DIR, permanent_filename)
-            shutil.move(temp_video_path, permanent_path)
-            print(f"Video saved permanently: {permanent_path}")
+        # 2. Dispatch to background worker
+        task_id = str(uuid.uuid4())
+        video_tasks[task_id] = {"status": "processing", "video_url": None, "error": None}
+        video_executor.submit(_video_worker, task_id, text, keyword, history_id)
         
-        # 4. Update Database if history_id is provided
-        if history_id and permanent_filename:
-            try:
-                cur.execute("UPDATE search_history SET video_filename = %s WHERE id = %s", (permanent_filename, history_id))
-                db.commit()
-                print(f"Database updated for History ID: {history_id}")
-            except Exception as e:
-                print(f"Database update failed: {e}")
+        return jsonify({"status": "processing", "task_id": task_id}), 202
 
-        cur.close()
-        return send_from_directory(VIDEO_STORAGE_DIR, permanent_filename, mimetype="video/mp4")
     except Exception as e:
         print(f"CRITICAL ERROR in /video: {e}")
-        return str(e), 500
+        return jsonify({"error": str(e)}), 500
+
+def _video_worker(task_id, text, keyword, history_id):
+    try:
+        temp_video_path = create_video_from_summary(text, keyword)
+        if not temp_video_path or not os.path.exists(temp_video_path):
+            video_tasks[task_id] = {"status": "error", "error": "Video generation failed"}
+            return
+        
+        permanent_filename = f"{uuid.uuid4()}.mp4"
+        permanent_path = os.path.join(VIDEO_STORAGE_DIR, permanent_filename)
+        shutil.move(temp_video_path, permanent_path)
+        
+        if history_id:
+            with app.app_context(): # required if db needs context
+                db = get_db()
+                cur = db.cursor()
+                try:
+                    cur.execute("UPDATE search_history SET video_filename = %s WHERE id = %s", (permanent_filename, history_id))
+                    db.commit()
+                except Exception as e:
+                    print(f"Background DB update failed: {e}")
+                finally:
+                    cur.close()
+
+        video_tasks[task_id] = {
+            "status": "completed", 
+            "video_url": f"/get_video/{permanent_filename}"
+        }
+    except Exception as e:
+        video_tasks[task_id] = {"status": "error", "error": str(e)}
+
+@app.route("/video/status/<task_id>", methods=["GET"])
+def get_video_status(task_id):
+    task = video_tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+    return jsonify(task)
 
 @app.route("/get_video/<filename>")
 def serve_video(filename):

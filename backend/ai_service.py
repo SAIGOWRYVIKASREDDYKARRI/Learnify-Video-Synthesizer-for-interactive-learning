@@ -26,8 +26,10 @@ def scrape_educational_content_safe(topic, result_container):
             text = p.get_text().strip()
             if len(text) > 50: content.append(text)
         result_container[0] = "\n".join(content[:5])
-    except: pass
-
+    except requests.exceptions.RequestException as e:
+        print(f"Scrape network error: {e}")
+    except Exception as e:
+        print(f"Scrape parsing error: {e}")
 def scrape_educational_content(topic):
     """Wrapper to run scraping with timeout."""
     result_container = [""]

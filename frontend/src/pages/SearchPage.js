@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, Sparkles, Youtube, ExternalLink, CheckCircle, Circle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import CONFIG from "../utils/config";
+import CONFIG, { fetchAuth } from "../utils/config";
 
 function SearchPage({ query, setQuery, videos, setVideos, error, setError }) {
     const [selected, setSelected] = useState([]);
@@ -58,7 +58,7 @@ function SearchPage({ query, setQuery, videos, setVideos, error, setError }) {
             const email = localStorage.getItem("email");
 
             if (username && email) {
-                const hRes = await fetch(`${CONFIG.API_BASE_URL}/add_search`, {
+                const hRes = await fetchAuth(`${CONFIG.API_BASE_URL}/add_search`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ username, email, searches: searchQuery }),

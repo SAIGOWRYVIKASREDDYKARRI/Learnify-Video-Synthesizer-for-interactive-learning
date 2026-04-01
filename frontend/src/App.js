@@ -33,6 +33,7 @@ function App() {
     localStorage.removeItem("user");
     localStorage.removeItem("username");
     localStorage.removeItem("email");
+    localStorage.removeItem("token");
     setUser(null);
   };
 

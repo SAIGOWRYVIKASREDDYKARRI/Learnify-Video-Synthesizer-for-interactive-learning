@@ -24,6 +24,7 @@ function LoginPage({ setUser }) {
             });
             const data = await res.json();
             if (res.ok) {
+                localStorage.setItem("token", data.token);
                 localStorage.setItem("username", data.username);
                 localStorage.setItem("email", data.email || form.email);
                 setUser(data.username);

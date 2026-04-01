@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Sparkles, Video, BookOpen, ChevronLeft, CheckCircle2, XCircle, Lightbulb, PlayCircle, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import CONFIG from "../utils/config";
+import CONFIG, { fetchAuth } from "../utils/config";
 
 function SummaryPage() {
     const location = useLocation();
@@ -27,7 +27,7 @@ function SummaryPage() {
             if (!keyword) { setError("No keyword"); setLoading(false); return; }
             try {
                 setLoading(true);
-                const res = await fetch(`${CONFIG.API_BASE_URL}/summary`, {
+                const res = await fetchAuth(`${CONFIG.API_BASE_URL}/summary`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ keyword, videoIds, historyId }),
@@ -67,21 +67,49 @@ function SummaryPage() {
     const generateVideo = async () => {
         setVideoLoading(true);
         try {
-            const res = await fetch(`${CONFIG.API_BASE_URL}/video`, {
+            const res = await fetchAuth(`${CONFIG.API_BASE_URL}/video`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: summaryText, keyword, historyId }),
             });
             if (!res.ok) throw new Error("Video failed");
-            const blob = await res.blob();
-            setVideoUrl(URL.createObjectURL(blob));
-        } catch { alert("Failed to generate video"); }
-        finally { setVideoLoading(false); }
+            const data = await res.json();
+            
+            if (data.video_url) {
+                setVideoUrl(`${CONFIG.API_BASE_URL}${data.video_url}`);
+                setVideoLoading(false);
+                return;
+            }
+            
+            if (data.task_id) {
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusRes = await fetchAuth(`${CONFIG.API_BASE_URL}/video/status/${data.task_id}`);
+                        const statusData = await statusRes.json();
+                        
+                        if (statusData.status === "completed") {
+                            clearInterval(pollInterval);
+                            setVideoUrl(`${CONFIG.API_BASE_URL}${statusData.video_url}`);
+                            setVideoLoading(false);
+                        } else if (statusData.status === "error") {
+                            clearInterval(pollInterval);
+                            alert("Video generation failed: " + statusData.error);
+                            setVideoLoading(false);
+                        }
+                    } catch (e) {
+                        console.error("Polling error", e);
+                    }
+                }, 3000);
+            }
+        } catch { 
+            alert("Failed to generate video"); 
+            setVideoLoading(false);
+        }
     };
 
     const generateMCQs = async () => {
         try {
-            const res = await fetch(`${CONFIG.API_BASE_URL}/mcqs`, {
+            const res = await fetchAuth(`${CONFIG.API_BASE_URL}/mcqs`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: summaryText }),
@@ -93,7 +121,7 @@ function SummaryPage() {
 
             // Persist to backend
             if (historyId) {
-                fetch(`${CONFIG.API_BASE_URL}/save_quiz`, {
+                fetchAuth(`${CONFIG.API_BASE_URL}/save_quiz`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ historyId, quiz: data }),
@@ -107,7 +135,7 @@ function SummaryPage() {
             const payload = {
                 answers: mcqs.map((m, i) => ({ question: m.question, selected: answers[i], correct: m.answer })),
             };
-            const res = await fetch(`${CONFIG.API_BASE_URL}/evaluate`, {
+            const res = await fetchAuth(`${CONFIG.API_BASE_URL}/evaluate`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
@@ -120,7 +148,7 @@ function SummaryPage() {
 
             // Save score to backend
             if (historyId) {
-                fetch(`${CONFIG.API_BASE_URL}/save_score`, {
+                fetchAuth(`${CONFIG.API_BASE_URL}/save_score`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ historyId, score: finalScore, total: mcqs.length }),
@@ -132,7 +160,7 @@ function SummaryPage() {
     const toggleFavorite = async () => {
         if (!historyId) return;
         try {
-            const res = await fetch(`${CONFIG.API_BASE_URL}/toggle_favorite`, {
+            const res = await fetchAuth(`${CONFIG.API_BASE_URL}/toggle_favorite`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ historyId }),
@@ -252,7 +280,7 @@ function SummaryPage() {
                                                             onChange={() => { const a = [...answers]; a[i] = opt; setAnswers(a); }}
                                                             style={{ accentColor: '#8b5cf6' }}
                                                         />
-                                                        <span style={{ flex: 1, color: 'white' }}>{opt}</span>
+                                                        <span style={{ flex: 1, color: 'var(--fg-main)' }}>{opt}</span>
                                                         {isCorrect && <CheckCircle2 size={18} color="#22c55e" />}
                                                         {isWrong && <XCircle size={18} color="#ef4444" />}
                                                     </label>
@@ -268,7 +296,7 @@ function SummaryPage() {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: '#8b5cf6', fontWeight: 600 }}>
                                                     <Lightbulb size={16} /> Explanation
                                                 </div>
-                                                <p style={{ margin: 0, fontSize: '0.95rem', color: 'white' }}>{evaluatedResults[i].explanation}</p>
+                                                <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--fg-main)' }}>{evaluatedResults[i].explanation}</p>
                                             </motion.div>
                                         )}
                                     </div>

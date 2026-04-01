@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { History, Play, Video as VideoIcon, Calendar, X, Youtube, BookOpen, CheckCircle2, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import CONFIG from "../utils/config";
+import CONFIG, { fetchAuth } from "../utils/config";
 
 function HistoryPage() {
     const navigate = useNavigate();
@@ -20,9 +20,14 @@ function HistoryPage() {
                 return;
             }
             try {
-                const res = await fetch(`${CONFIG.API_BASE_URL}/get_history?username=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}`);
+                const res = await fetchAuth(`${CONFIG.API_BASE_URL}/get_history?username=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}`);
                 const data = await res.json();
-                setHistory(data);
+                if (res.ok) {
+                    setHistory(Array.isArray(data) ? data : []);
+                } else {
+                    console.error("Error from backend:", data);
+                    setHistory([]);
+                }
             } catch (err) {
                 console.error("Error fetching history:", err);
             } finally {
@@ -35,7 +40,7 @@ function HistoryPage() {
     const toggleFavorite = async (e, historyId) => {
         e.stopPropagation();
         try {
-            const res = await fetch(`${CONFIG.API_BASE_URL}/toggle_favorite`, {
+            const res = await fetchAuth(`${CONFIG.API_BASE_URL}/toggle_favorite`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ historyId }),
