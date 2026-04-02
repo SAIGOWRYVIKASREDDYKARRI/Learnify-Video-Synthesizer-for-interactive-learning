@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, AlertCircle, Youtube, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "react-hot-toast";
 import CONFIG from "../utils/config";
 
 function LoginPage({ setUser }) {
@@ -28,12 +29,13 @@ function LoginPage({ setUser }) {
                 localStorage.setItem("username", data.username);
                 localStorage.setItem("email", data.email || form.email);
                 setUser(data.username);
+                toast.success("Welcome back!");
                 navigate("/");
             } else {
-                setError(data.error || "Invalid credentials");
+                toast.error(data.error || "Invalid credentials");
             }
         } catch {
-            setError("Server error");
+            toast.error("Server error");
         } finally {
             setIsLoading(false);
         }

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, User, AlertCircle, Youtube, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "react-hot-toast";
 import CONFIG from "../utils/config";
 
 function RegisterPage() {
@@ -29,13 +30,14 @@ function RegisterPage() {
                 body: JSON.stringify(form),
             });
             if (res.ok) {
+                toast.success("Registration successful! Please login.");
                 navigate("/login");
             } else {
                 const data = await res.json();
-                setError(data.error || "Registration failed");
+                toast.error(data.error || "Registration failed");
             }
         } catch {
-            setError("Server error");
+            toast.error("Server error");
         } finally {
             setIsLoading(false);
         }

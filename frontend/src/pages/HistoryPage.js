@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { History, Play, Video as VideoIcon, Calendar, X, Youtube, BookOpen, CheckCircle2, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "react-hot-toast";
 import CONFIG, { fetchAuth } from "../utils/config";
 
 function HistoryPage() {
@@ -50,8 +51,10 @@ function HistoryPage() {
                 setHistory(prev => prev.map(item =>
                     item.id === historyId ? { ...item, is_favorite: data.is_favorite } : item
                 ));
+                toast.success(data.is_favorite ? "Added to favorites!" : "Removed from favorites");
             }
         } catch (err) {
+            toast.error("Failed to update favorites");
             console.error("Failed to toggle favorite", err);
         }
     };

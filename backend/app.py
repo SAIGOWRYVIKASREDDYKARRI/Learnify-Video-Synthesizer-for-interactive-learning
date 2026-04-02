@@ -38,9 +38,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Fix 3: No hardcoded fallbacks — crash loudly if secrets are missing in production
-SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "superjwtsecret")
+# Fix 3: Fail loudly if secrets are missing in production
+try:
+    SECRET_KEY = os.environ["SECRET_KEY"]
+    JWT_SECRET_KEY = os.environ["JWT_SECRET_KEY"]
+except KeyError as e:
+    print(f"❌ CRITICAL ERROR: {e.args[0]} missing from .env. See README for setup.")
+    raise
+
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24
 

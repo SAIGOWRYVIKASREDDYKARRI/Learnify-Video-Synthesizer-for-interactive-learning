@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, Sparkles, Youtube, ExternalLink, CheckCircle, Circle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "react-hot-toast";
 import CONFIG, { fetchAuth } from "../utils/config";
 
 function SearchPage({ query, setQuery, videos, setVideos, error, setError }) {
@@ -99,7 +100,7 @@ function SearchPage({ query, setQuery, videos, setVideos, error, setError }) {
                 }
             });
         } else {
-            alert("Please select at least one video.");
+            toast.error("Please select at least one video.");
         }
     };
 

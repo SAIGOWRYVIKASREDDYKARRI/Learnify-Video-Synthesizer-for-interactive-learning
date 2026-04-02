@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Sparkles, Video, BookOpen, ChevronLeft, CheckCircle2, XCircle, Lightbulb, PlayCircle, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "react-hot-toast";
 import CONFIG, { fetchAuth } from "../utils/config";
 
 function SummaryPage() {
@@ -21,6 +22,7 @@ function SummaryPage() {
     const [evaluatedResults, setEvaluatedResults] = useState([]);
     const [showExplanation, setShowExplanation] = useState({});
     const [isFavorite, setIsFavorite] = useState(false);
+    const [taskId, setTaskId] = useState(null);
 
     useEffect(() => {
         const fetchSummary = async () => {
@@ -61,11 +63,41 @@ function SummaryPage() {
     }, [keyword, videoIds]);
 
     useEffect(() => {
-        if (summaryText && !videoUrl && !videoLoading && !error) generateVideo();
+        if (summaryText && !videoUrl && !videoLoading && !error && !taskId) generateVideo();
     }, [summaryText, error]);
+
+    // Fix 11: Polling with cleanup
+    useEffect(() => {
+        if (!taskId) return;
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const statusRes = await fetchAuth(`${CONFIG.API_BASE_URL}/video/status/${taskId}`);
+                const statusData = await statusRes.json();
+                
+                if (statusData.status === "completed") {
+                    clearInterval(pollInterval);
+                    setVideoUrl(`${CONFIG.API_BASE_URL}${statusData.video_url}`);
+                    setVideoLoading(false);
+                    setTaskId(null);
+                    toast.success("Video synthesis complete!");
+                } else if (statusData.status === "error") {
+                    clearInterval(pollInterval);
+                    toast.error("Video generation failed: " + statusData.error);
+                    setVideoLoading(false);
+                    setTaskId(null);
+                }
+            } catch (e) {
+                console.error("Polling error", e);
+            }
+        }, 3000);
+
+        return () => clearInterval(pollInterval); // cleanup on unmount
+    }, [taskId]);
 
     const generateVideo = async () => {
         setVideoLoading(true);
+        const t = toast.loading("AI is synthesizing your learning video...");
         try {
             const res = await fetchAuth(`${CONFIG.API_BASE_URL}/video`, {
                 method: "POST",
@@ -78,32 +110,19 @@ function SummaryPage() {
             if (data.video_url) {
                 setVideoUrl(`${CONFIG.API_BASE_URL}${data.video_url}`);
                 setVideoLoading(false);
+                toast.dismiss(t);
+                toast.success("Ready to watch!");
                 return;
             }
             
             if (data.task_id) {
-                const pollInterval = setInterval(async () => {
-                    try {
-                        const statusRes = await fetchAuth(`${CONFIG.API_BASE_URL}/video/status/${data.task_id}`);
-                        const statusData = await statusRes.json();
-                        
-                        if (statusData.status === "completed") {
-                            clearInterval(pollInterval);
-                            setVideoUrl(`${CONFIG.API_BASE_URL}${statusData.video_url}`);
-                            setVideoLoading(false);
-                        } else if (statusData.status === "error") {
-                            clearInterval(pollInterval);
-                            alert("Video generation failed: " + statusData.error);
-                            setVideoLoading(false);
-                        }
-                    } catch (e) {
-                        console.error("Polling error", e);
-                    }
-                }, 3000);
+                setTaskId(data.task_id);
+                toast.dismiss(t); // Task polling will take over notifications
             }
         } catch { 
-            alert("Failed to generate video"); 
+            toast.error("Failed to generate video"); 
             setVideoLoading(false);
+            toast.dismiss(t);
         }
     };
 
@@ -127,7 +146,7 @@ function SummaryPage() {
                     body: JSON.stringify({ historyId, quiz: data }),
                 }).catch(err => console.error("Failed to save quiz", err));
             }
-        } catch { alert("Failed to generate MCQs"); }
+        } catch { toast.error("Failed to generate MCQs"); }
     };
 
     const handleSubmitMCQs = async () => {
@@ -154,7 +173,8 @@ function SummaryPage() {
                     body: JSON.stringify({ historyId, score: finalScore, total: mcqs.length }),
                 }).catch(err => console.error("Failed to save score", err));
             }
-        } catch { alert("Evaluation failed"); }
+            toast.success(`You scored ${finalScore}/${mcqs.length}!`);
+        } catch { toast.error("Evaluation failed"); }
     };
 
     const toggleFavorite = async () => {
