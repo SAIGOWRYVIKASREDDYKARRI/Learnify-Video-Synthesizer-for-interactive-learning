@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, EmailStr
+from mysql.connector.errors import PoolError
 from dotenv import load_dotenv
 import jwt as pyjwt
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -309,19 +310,21 @@ def summary(data: SummaryRequest, _user=Depends(verify_jwt)):
     keyword = data.keyword
     history_id = data.historyId
 
+    # Step 1: Check cache and get basic info (Quick)
     db = get_db()
     cur = dict_cursor(db)
+    summary_text = None
+    cached_quiz = None
+    is_favorite = False
     try:
-        # Check summary cache
         cur.execute(
             "SELECT summary FROM search_history WHERE query = %s AND summary IS NOT NULL ORDER BY timestamp DESC LIMIT 1",
             (keyword,),
         )
         cached = cur.fetchone()
+        if cached:
+            summary_text = cached["summary"]
 
-        # Check quiz/favorite cache
-        cached_quiz = None
-        is_favorite = False
         if history_id:
             cur.execute(
                 "SELECT quiz_json, is_favorite FROM search_history WHERE id = %s",
@@ -331,24 +334,33 @@ def summary(data: SummaryRequest, _user=Depends(verify_jwt)):
             if row:
                 cached_quiz = json.loads(row["quiz_json"]) if row["quiz_json"] else None
                 is_favorite = bool(row["is_favorite"])
+    finally:
+        cur.close()
+        db.close() # <--- RELEASE BEFORE AI CALL
 
-        summary_text = cached["summary"] if (cached and cached["summary"]) else query_ollama(keyword)
+    # Step 2: AI Generation (Slow - NO DB CONNECTION HELD)
+    if not summary_text:
+        summary_text = query_ollama(keyword)
 
-        if history_id:
+    # Step 3: Persistence (Quick)
+    if history_id:
+        db = get_db()
+        cur = db.cursor()
+        try:
             cur.execute(
                 "UPDATE search_history SET summary = %s WHERE id = %s",
                 (summary_text, history_id),
             )
             db.commit()
+        finally:
+            cur.close()
+            db.close()
 
-        return {
-            "summary": summary_text,
-            "quiz": cached_quiz,
-            "is_favorite": is_favorite,
-        }
-    finally:
-        cur.close()
-        db.close()
+    return {
+        "summary": summary_text,
+        "quiz": cached_quiz,
+        "is_favorite": is_favorite,
+    }
 
 @app.post("/save_quiz")
 def save_quiz(data: SaveQuizRequest, _user=Depends(verify_jwt)):
@@ -514,6 +526,14 @@ def evaluate(data: EvaluateRequest):
 # ─────────────────────────────────────────────
 # Run
 # ─────────────────────────────────────────────
+# Fix 5: Global Exception Handler for DB Pool Exhaustion
+@app.exception_handler(PoolError)
+async def pool_error_handler(request, exc):
+    return JSONResponse(
+        status_code=503,
+        content={"error": "Server busy. Please try again in a few seconds."},
+    )
+
 if __name__ == "__main__":
     print("\n🚀 Starting Learnify FastAPI backend...")
     print("📡 API running at:  http://localhost:5000")
