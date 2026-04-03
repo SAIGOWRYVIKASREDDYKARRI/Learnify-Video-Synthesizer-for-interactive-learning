@@ -32,3 +32,9 @@ backend/requirements_flask_backup.txt
 # Temp audio files generated during video creation
 backend/*.mp3
 backend/tmp*.mp3
+
+# Local backups and test files
+backend/backups/
+backend/backups_v2/
+backend/test_parsing.py
+backend/test_summary.txt

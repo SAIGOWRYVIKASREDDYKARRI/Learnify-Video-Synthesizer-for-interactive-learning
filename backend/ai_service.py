@@ -45,20 +45,53 @@ def query_ollama(topic):
     
     context_instruction = f"\nHere is context from educational sources:\n{external_context}\n" if external_context else ""
 
-    if is_programming:
-        structure = "1. Definition (100 words), 2. Syntax, 3. Key Concepts, 4. Comparison Table [[[TABLE]]], 5. Code Example (```python...```), 6. Output, 7. Applications, 8. Pros/Cons, 9. Notes, 10. Conclusion."
-    else:
-        structure = "1. Definition, 2. Process/Mechanism, 3. Importance, 4. Comparison/Types, 5. Notes, 6. Conclusion."
-
+    structure = "Definition :, Syntax:, Types:, Uses:, Simple Example:, Advantages:, Disadvantages:"
+    
     prompt = f"""
-    Generate a 5-minute educational script for "{topic}". Approx 800 words.
+    Generate a comprehensive educational script for "{topic}". 
+    Target length: at least 1000 words. Proceed with whatever length is generated if it falls short.
     {context_instruction}
-    Follow this structure strictly: {structure}
-    Format: triple backticks for code, [[[TABLE]]] for tables. No bold/italic in body.
+    
+    Follow this structure strictly with these exact header labels:
+    Definition : 
+    (Provide a detailed definition)
+    
+    Syntax:
+    (Provide the syntax or structural rules)
+    
+    Types:
+    (List the types if applicable, otherwise summarize categories)
+    
+    Uses:
+    (List the practical applications)
+    
+    Simple Example:
+    (Provide a clear, standalone example. If programming, provide the code here. DO NOT use backquotes.)
+    
+    Advantages:
+    (List the benefits)
+    
+    Disadvantages:
+    (List the drawbacks)
+
+    CRITICAL FORMATTING RULES:
+    1. DO NOT use asterisks (*), double asterisks (**), underscores (_), or backquotes (`) anywhere in the output.
+    2. For sections that require lists (Types, Uses, Advantages, Disadvantages), use numeric labels like "1.", "2.", "3." etc.
+    3. The header labels MUST be exactly as shown above (e.g., "Definition :", "Syntax:").
+    4. Provide the content in plain text format only. No markdown formatting for bold, italic, or code blocks.
     """
     try:
-        result = subprocess.run(["ollama", "run", "gemma:2b"], input=prompt.encode("utf-8"), capture_output=True, timeout=300)
-        return result.stdout.decode("utf-8", errors="ignore").strip() or "Error: Empty output"
+        result = subprocess.run(["ollama", "run", "gemma:2b"], input=prompt.encode("utf-8"), capture_output=True, timeout=600)
+        output = result.stdout.decode("utf-8", errors="ignore").strip()
+        
+        # Post-processing: Forcefully remove common markdown symbols as requested by user for TTS safety
+        if output and not output.startswith("Error:"):
+            # Remove asterisks, backquotes, and underscores
+            output = re.sub(r'[*_`]', '', output)
+            # Ensure multiple newlines are normalized but kept for paragraph splitting
+            output = re.sub(r'\n{3,}', '\n\n', output)
+            
+        return output or "Error: Empty output"
     except Exception as e:
         return f"Error: {e}"
 

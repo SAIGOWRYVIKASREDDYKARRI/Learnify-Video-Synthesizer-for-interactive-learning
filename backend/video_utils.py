@@ -61,38 +61,49 @@ def create_video_from_summary(text, keyword):
     # 1. Fetch Images (Parallel)
     topic_images = fetch_topic_images(keyword, count=15)
 
-    # 2. Parse Text into Valid Slides
-    parts = re.split(r'((?:```[\s\S]*?```)|(?:\[\[\[TABLE\]\]\][\s\S]*?\[\[\[TABLE\]\]\]))', text)
+    # 2. Parse Text based on New Headers
+    headers = ["Definition :", "Syntax:", "Types:", "Uses:", "Simple Example:", "Advantages:", "Disadvantages:"]
+    # Join headers into a regex pattern. Handle potential whitespace differences before the colon.
+    header_regex = r"((?:" + "|".join(re.escape(h).replace(r"\ :", r"\s*:") for h in headers) + r"))"
     
-    slides_data = [] 
-    for part in parts:
-        part = part.strip()
-        if not part: continue
-        
-        if part.startswith("```") and part.endswith("```"):
-            code_content = part.strip("`").strip()
-            if code_content.startswith("python") or code_content.startswith("java") or code_content.startswith("cpp"):
-                 code_content = code_content.split('\n', 1)[-1]
-            slides_data.append({'type': 'code', 'content': code_content})
-        elif part.startswith("[[[TABLE]]]") and part.endswith("[[[TABLE]]]"):
-            table_content = part.replace("[[[TABLE]]]", "").strip()
-            slides_data.append({'type': 'comparison', 'content': table_content})
-        else:
-            paragraphs = [p.strip() for p in part.split('\n\n') if p.strip()]
-            for para in paragraphs:
-                if len(para) > 300:
-                     sentences = re.split(r'(?<=[.!?])\s+', para)
-                     current_chunk = ""
-                     for s in sentences:
-                         if len(current_chunk) + len(s) < 250:
-                             current_chunk += s + " "
-                         else:
-                             slides_data.append({'type': 'text', 'content': current_chunk.strip()})
-                             current_chunk = s + " "
-                     if current_chunk:
-                         slides_data.append({'type': 'text', 'content': current_chunk.strip()})
-                else:
-                    slides_data.append({'type': 'text', 'content': para})
+    # Split text while keeping headers (via capturing parentheses)
+    parts = re.split(header_regex, text)
+    
+    slides_data = []
+    current_header = "text" # Default
+    
+    for i in range(1, len(parts), 2):
+        header = parts[i].strip()
+        content = parts[i+1].strip() if (i+1) < len(parts) else ""
+        if not content: continue
+
+        # Visual Mapping
+        slide_type = "code" if header == "Simple Example:" else "text"
+            
+        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+        for idx, para in enumerate(paragraphs):
+            # Clean up content
+            clean_para = para.replace("*", "").replace("`", "").strip()
+            if not clean_para: continue
+            
+            # Prepend header to the first paragraph of the section
+            if idx == 0:
+                clean_para = f"{header}\n{clean_para}"
+            
+            # Further split very long paragraphs into smaller digestible slides
+            if len(clean_para) > 300:
+                 sentences = re.split(r'(?<=[.!?])\s+', clean_para)
+                 current_chunk = ""
+                 for s in sentences:
+                     if len(current_chunk) + len(s) < 250:
+                         current_chunk += s + " "
+                     else:
+                         slides_data.append({'type': slide_type, 'content': current_chunk.strip()})
+                         current_chunk = s + " "
+                 if current_chunk:
+                     slides_data.append({'type': slide_type, 'content': current_chunk.strip()})
+            else:
+                 slides_data.append({'type': slide_type, 'content': clean_para})
 
     # 3. Generate Audio for all text slides (Parallel)
     slides_data = [s for s in slides_data if s['content']]
