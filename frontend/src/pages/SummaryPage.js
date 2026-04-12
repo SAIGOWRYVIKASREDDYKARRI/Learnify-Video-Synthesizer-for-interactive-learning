@@ -26,11 +26,39 @@ function SummaryPage() {
     const [analysis, setAnalysis] = useState("");
     const [activeTab, setActiveTab] = useState("analysis");
     const videoRef = useRef(null);
+    const [skipFeedback, setSkipFeedback] = useState(null);
 
     const skipTime = (amount) => {
         if (videoRef.current) {
-            videoRef.current.currentTime += amount;
+            // Fix: Clear feedback first to allow re-triggering same side quickly
+            setSkipFeedback(null);
+            
+            const newTime = videoRef.current.currentTime + amount;
+            // Ensure we don't go out of bounds
+            videoRef.current.currentTime = Math.max(0, Math.min(newTime, videoRef.current.duration));
+            
+            // Show visual feedback
+            setSkipFeedback(amount > 0 ? "forward" : "back");
+            setTimeout(() => setSkipFeedback(null), 800);
         }
+    };
+
+    const handleVideoClick = (e) => {
+        if (!videoRef.current) return;
+        
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const width = rect.width;
+        
+        // Define zones: Left 30%, Right 30%
+        if (x < width * 0.3) {
+            e.preventDefault();
+            skipTime(-5);
+        } else if (x > width * 0.7) {
+            e.preventDefault();
+            skipTime(5);
+        }
+        // Middle clicks are left to standard play/pause controls
     };
 
     useEffect(() => {
@@ -456,55 +484,56 @@ function SummaryPage() {
                             </div>
                         ) : videoUrl ? (
                             <div style={{ borderRadius: '1rem', overflow: 'hidden', border: '1px solid var(--glass-border)', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
-                                <video ref={videoRef} width="100%" controls src={videoUrl} style={{ display: 'block' }}></video>
-                                <div style={{ 
-                                    display: 'flex', 
-                                    justifyContent: 'center', 
-                                    gap: '1.5rem', 
-                                    padding: '1rem', 
-                                    background: 'rgba(255,255,255,0.03)',
-                                    borderTop: '1px solid var(--glass-border)'
-                                }}>
-                                    <motion.button 
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => skipTime(-5)}
-                                        style={{ 
-                                            background: 'rgba(255,255,255,0.05)', 
-                                            border: '1px solid var(--glass-border)', 
-                                            color: 'var(--fg-muted)', 
-                                            padding: '0.5rem 1rem', 
-                                            borderRadius: '0.75rem',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '0.5rem',
-                                            fontSize: '0.9rem',
-                                            fontWeight: 600
-                                        }}
-                                    >
-                                        <RotateCcw size={16} /> -5s
-                                    </motion.button>
-                                    <motion.button 
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => skipTime(5)}
-                                        style={{ 
-                                            background: 'rgba(255,255,255,0.05)', 
-                                            border: '1px solid var(--glass-border)', 
-                                            color: 'var(--fg-muted)', 
-                                            padding: '0.5rem 1rem', 
-                                            borderRadius: '0.75rem',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '0.5rem',
-                                            fontSize: '0.9rem',
-                                            fontWeight: 600
-                                        }}
-                                    >
-                                        <RotateCw size={16} /> +5s
-                                    </motion.button>
+                                <div 
+                                    style={{ position: 'relative', cursor: 'pointer' }}
+                                    onClick={handleVideoClick}
+                                >
+                                    <video 
+                                        ref={videoRef} 
+                                        width="100%" 
+                                        controls 
+                                        src={videoUrl} 
+                                        style={{ display: 'block' }}
+                                    ></video>
+                                    
+                                    <AnimatePresence>
+                                        {skipFeedback && (
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.5 }}
+                                                animate={{ opacity: 1, scale: 1 }}
+                                                exit={{ opacity: 0, scale: 1.5 }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: '50%',
+                                                    left: skipFeedback === 'back' ? '15%' : '85%',
+                                                    transform: 'translate(-50%, -50%)',
+                                                    pointerEvents: 'none',
+                                                    background: 'rgba(0,0,0,0.5)',
+                                                    borderRadius: '50%',
+                                                    width: '80px',
+                                                    height: '80px',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    color: 'white',
+                                                    zIndex: 10
+                                                }}
+                                            >
+                                                {skipFeedback === 'back' ? (
+                                                    <>
+                                                        <RotateCcw size={32} />
+                                                        <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>-5s</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <RotateCw size={32} />
+                                                        <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>+5s</span>
+                                                    </>
+                                                )}
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                 </div>
                             </div>
                         ) : (
